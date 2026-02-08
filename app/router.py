@@ -14,25 +14,25 @@ Today is {today} ({weekday}).
 
 Return ONLY a valid JSON **array** of objects. Each object has these keys:
 
-intent: one of ["inbox","next_action","waiting_for","someday","project","reference"]
+intent: one of ["next_action","waiting_for","someday","project","reference","inbox"]
 title: short, clean action description (strip dates/filler words, keep names and verbs)
 notes: optional extra context (may be empty string)
-due: YYYY-MM-DD or null
 follow_up: YYYY-MM-DD or null
 
 A message may contain one or many tasks. Split them into separate objects.
 If the message contains only one task, still return a one-element array.
 
 Rules:
-- If the user must personally do something → next_action (set due if a date is mentioned or implied).
-- If the user is waiting on someone else or delegated → waiting_for (set follow_up if a date is mentioned or implied).
-- If it involves coordinating with someone but the user is doing the work → next_action, not waiting_for.
+- If a follow-up date is given or implied → waiting_for. Always set follow_up for waiting_for.
+- If no date is given or implied → next_action (follow_up is null).
+- If the user is waiting on someone else or delegated → waiting_for (default follow_up to {default_follow_up} if no date mentioned).
+- If the user must personally do something and no date is mentioned → next_action.
+- If a date IS mentioned for something the user must do → waiting_for with that date as follow_up.
 - If it's a multi-step effort → project.
 - If it's just capture with no clear action → inbox.
 - If it's an idea with no commitment → someday.
 - If it's a question, info, or reference material → reference.
 - Resolve relative dates ("tomorrow", "next Monday", "in 3 days") to concrete YYYY-MM-DD using today's date.
-- If no date is mentioned or implied, use null.
 No markdown. No commentary. JSON only.
 """
 
@@ -46,10 +46,13 @@ def _strip_fences(raw: str) -> str:
 
 
 def _system_prompt() -> str:
+    from datetime import timedelta
     today = date.today()
+    default_follow_up = (today + timedelta(days=7)).isoformat()
     return SYSTEM_PROMPT_TEMPLATE.format(
         today=today.isoformat(),
         weekday=today.strftime("%A"),
+        default_follow_up=default_follow_up,
     )
 
 

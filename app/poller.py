@@ -59,7 +59,21 @@ def normalize_intent(v: str | None) -> str:
 
 
 def save_item(item: dict, raw_text: str):
+    from datetime import date as _date, timedelta
+
+    follow = item.get("follow_up")
+    has_follow_up = isinstance(follow, str) and bool(follow.strip())
+
+    # Enforce: follow_up present → Waiting For; absent → Next Action
+    # (unless intent is someday/project/reference/inbox)
     intent = normalize_intent(item.get("intent"))
+    if has_follow_up:
+        intent = "waiting_for"
+    elif intent == "waiting_for":
+        # Waiting For must have a follow-up; default to 1 week out
+        follow = (_date.today() + timedelta(days=7)).isoformat()
+        has_follow_up = True
+
     notion_type = TYPE_MAP.get(intent, "Inbox")
 
     title = (item.get("title") or "").strip() or raw_text
@@ -73,15 +87,10 @@ def save_item(item: dict, raw_text: str):
         "Notes": {"rich_text": [{"text": {"content": notes}}]},
     }
 
-    due = item.get("due")
-    if isinstance(due, str) and due.strip():
-        props["Due"] = {"date": {"start": due.strip()}}
-
-    follow = item.get("follow_up")
-    if isinstance(follow, str) and follow.strip():
+    if has_follow_up:
         props["Follow-up"] = {"date": {"start": follow.strip()}}
 
-    log.info("Saving → Type=%s  Title=%s", notion_type, title)
+    log.info("Saving → Type=%s  Title=%s  Follow-up=%s", notion_type, title, follow if has_follow_up else "none")
     create_page(props)
 
 
@@ -89,7 +98,6 @@ def _normalize_item(item: dict, fallback_text: str) -> dict:
     item.setdefault("intent", "inbox")
     item.setdefault("title", fallback_text)
     item.setdefault("notes", "")
-    item.setdefault("due", None)
     item.setdefault("follow_up", None)
     return item
 
