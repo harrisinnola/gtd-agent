@@ -1,0 +1,15 @@
+services:
+  agent:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+
+  poller:
+    build: .
+    env_file: .env
+    command: ["python", "poller.py"]
+    volumes:
+      - ./data:/data
