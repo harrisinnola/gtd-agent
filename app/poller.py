@@ -85,21 +85,27 @@ def save_item(item: dict, raw_text: str):
     create_page(props)
 
 
-def safe_triage(text: str) -> dict:
+def _normalize_item(item: dict, fallback_text: str) -> dict:
+    item.setdefault("intent", "inbox")
+    item.setdefault("title", fallback_text)
+    item.setdefault("notes", "")
+    item.setdefault("due", None)
+    item.setdefault("follow_up", None)
+    return item
+
+
+def safe_triage(text: str) -> list[dict]:
     try:
-        item = triage(text)
-        if not isinstance(item, dict):
-            log.warning("LLM returned non-dict: %r — falling back to inbox", item)
-            return {"intent": "inbox", "title": text, "notes": ""}
-        item.setdefault("intent", "inbox")
-        item.setdefault("title", text)
-        item.setdefault("notes", "")
-        item.setdefault("due", None)
-        item.setdefault("follow_up", None)
-        return item
+        items = triage(text)
+        if isinstance(items, dict):
+            items = [items]
+        if not isinstance(items, list) or not items:
+            log.warning("LLM returned unexpected type: %r — falling back to inbox", items)
+            return [{"intent": "inbox", "title": text, "notes": ""}]
+        return [_normalize_item(it, text) for it in items if isinstance(it, dict)]
     except Exception:
         log.exception("Triage failed for text: %s", text[:200])
-        return {"intent": "inbox", "title": text, "notes": ""}
+        return [{"intent": "inbox", "title": text, "notes": ""}]
 
 
 def main():
@@ -133,17 +139,20 @@ def main():
                     send_message(chat_id, "Ready. Send me anything to capture/triage into Notion.")
                     continue
 
-                item = safe_triage(text)
+                items = safe_triage(text)
+                saved = []
 
-                try:
-                    save_item(item, text)
-                    send_message(
-                        chat_id,
-                        f"Saved \u2192 {TYPE_MAP.get(normalize_intent(item.get('intent')), 'Inbox')}: {item.get('title', text)}",
-                    )
-                except Exception:
-                    log.exception("Notion save failed for item: %r", item)
-                    send_message(chat_id, "Error saving to Notion. Check poller logs.")
+                for item in items:
+                    try:
+                        save_item(item, text)
+                        label = TYPE_MAP.get(normalize_intent(item.get("intent")), "Inbox")
+                        saved.append(f"{label}: {item.get('title', text)}")
+                    except Exception:
+                        log.exception("Notion save failed for item: %r", item)
+                        saved.append(f"[ERROR] {item.get('title', text)}")
+
+                reply = "\n".join(f"Saved \u2192 {s}" for s in saved)
+                send_message(chat_id, reply or "Error saving to Notion. Check poller logs.")
 
             save_offset(offset)
 

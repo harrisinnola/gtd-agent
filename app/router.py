@@ -12,13 +12,16 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 SYSTEM_PROMPT_TEMPLATE = """You triage messages into a GTD system.
 Today is {today} ({weekday}).
 
-Return ONLY valid JSON with these keys:
+Return ONLY a valid JSON **array** of objects. Each object has these keys:
 
 intent: one of ["inbox","next_action","waiting_for","someday","project","reference"]
 title: short, clean action description (strip dates/filler words, keep names and verbs)
 notes: optional extra context (may be empty string)
 due: YYYY-MM-DD or null
 follow_up: YYYY-MM-DD or null
+
+A message may contain one or many tasks. Split them into separate objects.
+If the message contains only one task, still return a one-element array.
 
 Rules:
 - If the user must personally do something → next_action (set due if a date is mentioned or implied).
@@ -50,7 +53,7 @@ def _system_prompt() -> str:
     )
 
 
-def triage(text: str) -> dict:
+def triage(text: str) -> list[dict]:
     resp = client.chat.completions.create(
         model="gpt-4.1-mini",
         temperature=0,
@@ -62,4 +65,8 @@ def triage(text: str) -> dict:
     content = resp.choices[0].message.content
     cleaned = _strip_fences(content)
     log.debug("LLM raw response: %s", content)
-    return json.loads(cleaned)
+    parsed = json.loads(cleaned)
+    # Normalize: always return a list
+    if isinstance(parsed, dict):
+        return [parsed]
+    return parsed
